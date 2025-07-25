@@ -27,7 +27,11 @@ def load_config():
         raise ValueError("Missing llm_providers section")
     
     config = Config()
-    for name, provider in data["llm_providers"].items():
+    providers = data["llm_providers"]
+    if providers is None:
+        providers = {}
+        
+    for name, provider in providers.items():
         config.llm_providers[name] = LLMProviderConfig(
             api_key=provider["api_key"],
             default_model=provider["default_model"]

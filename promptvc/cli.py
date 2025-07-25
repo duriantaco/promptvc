@@ -14,68 +14,66 @@ app = typer.Typer(help="Git-like version control for LLM prompts.")
 
 @app.command()
 def init(path="."):
+    repo = PromptRepo(path)
     config_path = os.path.join(path, "promptvc.yaml")
+    gitignore_path = os.path.join(path, ".gitignore")
+
     if not os.path.exists(config_path):
-        typer.echo("Config file 'promptvc.yaml' not found. Creating a template...")
         template_config = """\
-# This will store the config for all your LLM providers..
 llm_providers:
   openai:
-    api_key: "sk-..."
+    api_key: "your_openai_api_key"
     default_model: "gpt-4-turbo"
   anthropic:
-    api_key: "api-key-..."
+    api_key: "your_anthropic_api_key"
     default_model: "claude-3-opus-20240229"
 """
         with open(config_path, "w") as f:
             f.write(template_config)
-        typer.echo(f"Created promptvc.yaml")
+        typer.echo("Created promptvc.yaml")
     else:
-        typer.echo("Config file 'promptvc.yaml' already exists.")
+        typer.echo("Config file already exists")
 
-    gitignore_path = os.path.join(path, ".gitignore")
-    config_filename = "promptvc.yaml"
     try:
         with open(gitignore_path, "a+") as f:
             f.seek(0)
             lines = f.readlines()
             found = False
             for line in lines:
-                if config_filename in line:
+                if "promptvc.yaml" in line:
                     found = True
                     break
             if not found:
-                f.write(f"\n# promptvc configuration file\n{config_filename}\n")
-                typer.echo(f"Added '{config_filename}' to .gitignore.")
-    except IOError as e:
-        typer.echo(f"Could not write to .gitignore: {e}", err=True)
+                f.write("\n# promptvc config\npromptvc.yaml\n")
+                typer.echo("Added promptvc.yaml to .gitignore")
+    except IOError:
+        pass
 
-    repo = PromptRepo(path)
     typer.echo(f"Initialized prompt repo at {repo.repo_path}")
 
 @app.command()
 def add(name, text):
     repo = PromptRepo()
     repo.add(name, text)
-    typer.echo(f"Added/updated prompt '{name}' (staged).")
+    typer.echo(f"Added/updated prompt '{name}' (staged)")
 
 @app.command()
 def commit(name, msg):
-    repo = PromptRepo()
+    repo = PromptRepo(".")
     repo.commit(name, msg)
     typer.echo(f"Committed prompt '{name}' with message: {msg}")
 
 @app.command()
 def history(name):
-    repo = PromptRepo()
+    repo = PromptRepo(".")
     versions = repo.history(name)
     for v in versions:
         typer.echo(f"Version {v.id}: {v.commit_msg} ({v.timestamp})")
 
 @app.command()
 def checkout(name, version):
-    repo = PromptRepo()
-    text = repo.checkout(name, version)
+    repo = PromptRepo(".")
+    text = repo.checkout(name, int(version))
     if text:
         typer.echo(text)
     else:
@@ -83,64 +81,96 @@ def checkout(name, version):
 
 @app.command()
 def diff(name, v1, v2):
-    repo = PromptRepo()
-    result = repo.diff(name, v1, v2)
+    repo = PromptRepo(".")
+    result = repo.diff(name, int(v1), int(v2))
     typer.echo("Text Diff:\n" + result["text_diff"])
     typer.echo(f"\nSemantic Similarity: {result['semantic_similarity']:.2f}")
 
 @app.command(name="list")
 def list_prompts():
-    repo = PromptRepo()
+    repo = PromptRepo(".")
     files = os.listdir(repo.prompts_dir)
     for f in files:
         if f.endswith('.yaml') and '_baseline' not in f:
             typer.echo(f.replace('.yaml', ''))
 
+@app.command() 
+def init_samples(name):
+    samples_file = f"{name}_samples.json"
+    
+    if os.path.exists(samples_file):
+        typer.echo(f"Samples file '{samples_file}' already exists")
+        return
+    
+    template_samples = [
+        {"input": "Replace with your first test input"},
+        {"input": "Replace with your second test input"},
+        {"input": "Add more test cases if you need"}
+    ]
+    
+    with open(samples_file, "w") as f:
+        json.dump(template_samples, f, indent=2)
+    
+    typer.echo(f"Created {samples_file}")
+    typer.echo("Edit the file with your test inputs")
+
 @app.command()
-def set_baseline(name, version, samples_file, llm="openai"):
-    repo = PromptRepo()
+def test(name, v1, v2, llm="openai"):
+    repo = PromptRepo(".")
+    samples_file = f"{name}_samples.json"
+    
+    if not os.path.exists(samples_file):
+        typer.echo(f"Samples file '{samples_file}' not found")
+        typer.echo(f"Creating template...")
+        
+        template_samples = [
+            {"input": "Replace with your first test input"},
+            {"input": "Replace with your second test input"}
+        ]
+        
+        with open(samples_file, "w") as f:
+            json.dump(template_samples, f, indent=2)
+        
+        typer.echo(f"Created {samples_file}")
+        typer.echo("Edit the file with your test inputs and rerun")
+        return
     
     if llm not in LLM_CALLERS:
-        available_llms = []
+        available = []
         for key in LLM_CALLERS.keys():
-            available_llms.append(key)
-        typer.echo(f"Error: Invalid LLM specified. Choose from {available_llms}", err=True)
-        raise typer.Exit(code=1)
-
+            available.append(key)
+        typer.echo(f"Invalid LLM. Choose from: {available}")
+        return
+    
     with open(samples_file, 'r') as f:
         samples = json.load(f)
     
-    typer.echo(f"Setting version {version} of '{name}' as baseline using {llm}... (This may take a moment)")
-    repo.set_baseline(name, version, samples, llm_func=LLM_CALLERS[llm])
-    typer.echo(f"Baseline set")
+    typer.echo(f"Testing {name} versions {v1} vs {v2} using {llm}...")
+    
+    v1_int = int(v1)
+    v2_int = int(v2)
+    
+    results = repo.eval_versions(name, [v1_int, v2_int], samples, LLM_CALLERS[llm])
 
-@app.command()
-def compare_baseline(name, version, samples_file, llm="openai"):
-    repo = PromptRepo()
-
-    if llm not in LLM_CALLERS:
-        available_llms = []
-        for key in LLM_CALLERS.keys():
-            available_llms.append(key)
-        typer.echo(f"Error: Invalid LLM specified. Choose from {available_llms}", err=True)
-        raise typer.Exit(code=1)
+    if v1_int not in results or v2_int not in results:
+        typer.echo("One or both versions not found")
+        return
+    
+    v1_outputs = results[v1_int]["outputs"] 
+    v2_outputs = results[v2_int]["outputs"]
+    
+    typer.echo(f"\nComparison Results:")
+    typer.echo("=" * 50)
+    
+    for i, (out1, out2) in enumerate(zip(v1_outputs, v2_outputs)):
+        typer.echo(f"\nTest {i+1}:")
+        typer.echo(f"Input: {out1['input']}")
+        typer.echo(f"V{v1}: {out1['output']}")
+        typer.echo(f"V{v2}: {out2['output']}")
         
-    with open(samples_file, 'r') as f:
-        samples = json.load(f)
-
-    typer.echo(f"Comparing version {version} of '{name}' to baseline using {llm}... (This may take a moment)")
-    try:
-        results = repo.compare_to_baseline(name, version, samples, llm_func=LLM_CALLERS[llm])
-        
-        typer.echo("\n--- Comparison Report ---")
-        for comp in results['comparisons']:
-            typer.echo("\n" + "="*20)
-            typer.echo(f"Input: {comp['input']}")
-            typer.echo(f" - Baseline (v{results['baseline_version']}) Output: {comp['baseline_output']}")
-            typer.echo(f" - New (v{results['new_version']}) Output: {comp['new_output']}")
-            typer.echo(f" - Similarity: {comp['similarity']:.2f}")
-    except (ValueError, FileNotFoundError) as e:
-        typer.echo(f"Error: {e}", err=True)
+        similarity = repo.diff_engine.semantic_diff(out1['output'], out2['output'])
+        typer.echo(f"Similarity: {similarity:.2f}")
+        typer.echo("-" * 30)
 
 if __name__ == "__main__":
     app()
