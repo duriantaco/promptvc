@@ -1,0 +1,9 @@
+venv
+chunks
+*.egg-info
+dist
+__pycache__
+.pytest_cache
+promptvc-test
+# promptvc config
+promptvc.yaml
