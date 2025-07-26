@@ -160,3 +160,7 @@ A: The library is **not** built for live, interactive testing. The `Pipeline` cl
 
 2. Does it work with any LLM?
 A: Works with OpenAI, Anthropic for now
+
+3. Why use this over Excel?
+
+A: Excel is manual copy/paste. promptvc can auto test multiple prompt versions against the same data and shows you which one performs better
